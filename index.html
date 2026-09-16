@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>约稿记录</title>
+<meta name="description" content="个人约稿全记录管理平台：标准化台账、星标收藏、进度跟进、稿件文件上传下载、快速检索。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='14' fill='%237d68e8'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 36V13a3 3 0 0 1 3-3h12l7 7v19'/%3E%3Cpath d='M26 10v8h7'/%3E%3Cpath d='M17 23h12M17 29h8'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ 顶部栏 ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+          <path d="M5 19.5V5.6a1.6 1.6 0 0 1 1.6-1.6h7.1l4.8 4.8v10.7"/>
+          <path d="M13.5 4v5.2h5"/>
+          <path d="M8.4 13h6.4M8.4 16.6h4"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>约稿记录</h1>
+        <p>每一次约稿，都值得被完整记录</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="btnExport" title="导出含稿件文件的完整备份包（ZIP）">导出备份</button>
+      <button class="btn btn-ghost" id="btnImport" title="从 ZIP 完整备份或 JSON 记录文件恢复数据">导入备份</button>
+      <button class="btn btn-primary" id="btnAdd">
+        <span class="btn-plus">＋</span> 新增约稿
+      </button>
+      <input type="file" id="fileInput" accept=".json,.zip,application/json,application/zip" multiple hidden>
+    </div>
+  </header>
+
+  <!-- ============ 板块切换 ============ -->
+  <nav class="view-nav" id="viewNav" role="tablist" aria-label="板块切换">
+    <button class="view-tab active" data-view="ledger" role="tab" aria-selected="true">约稿台账</button>
+    <button class="view-tab" data-view="files" role="tab" aria-selected="false">
+      稿件库 <span class="nav-badge" id="navFileCount">0</span>
+    </button>
+  </nav>
+
+  <!-- ==================== 板块一：约稿台账 ==================== -->
+  <div class="view" id="viewLedger">
+
+    <section class="stats" aria-label="数据概览">
+      <div class="stat-card">
+        <span class="stat-label">约稿总数</span>
+        <strong class="stat-value" id="statCount">0</strong>
+        <span class="stat-sub">笔订单记录</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">累计消费</span>
+        <strong class="stat-value" id="statTotal">¥0.00</strong>
+        <span class="stat-sub">不含已取消订单</span>
+      </div>
+      <div class="stat-card stat-star">
+        <span class="stat-label">星标收藏</span>
+        <strong class="stat-value" id="statStar">0</strong>
+        <span class="stat-sub">优质画稿资料库</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">进行中</span>
+        <strong class="stat-value" id="statDoing">0</strong>
+        <span class="stat-sub">待跟进稿件</span>
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <div class="search-box">
+        <span class="search-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm5.5 12.5L21 21"/></svg>
+        </span>
+        <input type="search" id="searchInput" placeholder="搜索画手昵称 / ID / 平台 / 进度 / 备注 / 金额 / 日期…" autocomplete="off">
+        <button class="search-clear" id="searchClear" hidden aria-label="清空搜索">✕</button>
+      </div>
+
+      <div class="chips" id="starFilter" role="group" aria-label="星标筛选">
+        <button class="chip active" data-filter="all">全部订单</button>
+        <button class="chip" data-filter="starred"><span class="chip-star">★</span> 星标收藏</button>
+      </div>
+
+      <select id="progressFilter" class="select" aria-label="按进度筛选">
+        <option value="">全部进度</option>
+      </select>
+
+      <select id="sortSelect" class="select" aria-label="排序方式">
+        <option value="date-desc">时间：最新优先</option>
+        <option value="date-asc">时间：最早优先</option>
+        <option value="price-desc">金额：从高到低</option>
+        <option value="price-asc">金额：从低到高</option>
+        <option value="created-desc">录入：最近新增</option>
+      </select>
+    </section>
+
+    <section class="list-head">
+      <span id="listSummary">共 0 条记录</span>
+      <button class="btn btn-text" id="btnExportCsv">导出 CSV 台账</button>
+    </section>
+
+    <section class="list" id="list" aria-live="polite"></section>
+  </div>
+
+  <!-- ==================== 板块二：稿件库 ==================== -->
+  <div class="view" id="viewFiles" hidden>
+
+    <section class="stats" aria-label="稿件概览">
+      <div class="stat-card">
+        <span class="stat-label">稿件总数</span>
+        <strong class="stat-value" id="fileStatCount">0</strong>
+        <span class="stat-sub">个已上传文件</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">占用空间</span>
+        <strong class="stat-value" id="fileStatSize">0 B</strong>
+        <span class="stat-sub">本地独立存储</span>
+      </div>
+      <div class="stat-card stat-star">
+        <span class="stat-label">星标订单稿件</span>
+        <strong class="stat-value" id="fileStatStar">0</strong>
+        <span class="stat-sub">优质参考素材</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">含稿件订单</span>
+        <strong class="stat-value" id="fileStatOrders">0</strong>
+        <span class="stat-sub">已有稿件归档</span>
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <div class="search-box">
+        <span class="search-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm5.5 12.5L21 21"/></svg>
+        </span>
+        <input type="search" id="fileSearchInput" placeholder="搜索稿件文件名 / 画手昵称 / ID / 平台…" autocomplete="off">
+        <button class="search-clear" id="fileSearchClear" hidden aria-label="清空搜索">✕</button>
+      </div>
+
+      <select id="fileTypeFilter" class="select" aria-label="按文件类型筛选">
+        <option value="">全部类型</option>
+        <option value="image">图片</option>
+        <option value="other">其它文件</option>
+      </select>
+
+      <select id="fileSortSelect" class="select" aria-label="稿件排序方式">
+        <option value="added-desc">上传：最新优先</option>
+        <option value="added-asc">上传：最早优先</option>
+        <option value="size-desc">大小：从大到小</option>
+        <option value="name-asc">名称：A → Z</option>
+      </select>
+
+      <button class="btn btn-ghost" id="btnUploadPick">＋ 上传稿件</button>
+      <button class="btn btn-primary" id="btnZipDownload">打包下载</button>
+    </section>
+
+    <section class="list-head">
+      <span id="fileSummary">共 0 个稿件</span>
+      <button class="btn btn-text" id="btnOpenFolderTip" hidden>稿件文件保存在本机浏览器中</button>
+    </section>
+
+    <section class="files-grid" id="filesGrid" aria-live="polite"></section>
+  </div>
+
+  <footer class="app-foot">
+    <span>约稿记录与稿件文件均保存在本机浏览器中（记录用本地存储、稿件用本地文件库），永久留存、不会自动清空。建议定期「导出备份」。</span>
+  </footer>
+</div>
+
+<!-- ============ 新增 / 编辑弹窗 ============ -->
+<div class="modal-mask" id="modalMask" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <header class="modal-head">
+      <h2 id="modalTitle">新增约稿记录</h2>
+      <button class="icon-btn" id="modalClose" aria-label="关闭">✕</button>
+    </header>
+
+    <form id="orderForm" class="modal-body" novalidate>
+
+      <fieldset class="field-group">
+        <legend>画手老师信息</legend>
+        <div class="grid-2">
+          <label class="field">
+            <span class="field-label">画手昵称 <b class="req">*</b></span>
+            <input type="text" id="fArtistName" placeholder="如：云间绘" autocomplete="off">
+          </label>
+          <label class="field">
+            <span class="field-label">画手 ID / 账号 <b class="req">*</b></span>
+            <input type="text" id="fArtistId" placeholder="平台唯一标识，如 MHS-88213" autocomplete="off">
+          </label>
+        </div>
+        <label class="field">
+          <span class="field-label">账号主页链接 <em>选填</em></span>
+          <input type="text" id="fArtistHome" placeholder="https://..." autocomplete="off">
+        </label>
+        <p class="field-hint">昵称与 ID 至少填写一项，用于精准对应每位合作画师，避免同名混淆。</p>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>订单信息</legend>
+        <div class="grid-2">
+          <label class="field">
+            <span class="field-label">约稿平台 <b class="req">*</b></span>
+            <select id="fPlatform"></select>
+          </label>
+          <label class="field" id="fPlatformCustomWrap" hidden>
+            <span class="field-label">自定义平台名称 <b class="req">*</b></span>
+            <input type="text" id="fPlatformCustom" placeholder="请输入平台名称" autocomplete="off">
+          </label>
+        </div>
+
+        <div class="grid-2">
+          <label class="field">
+            <span class="field-label">约稿价格（元） <b class="req">*</b></span>
+            <input type="number" id="fPrice" step="0.01" min="0" placeholder="0.00" autocomplete="off">
+          </label>
+          <label class="field">
+            <span class="field-label">约稿时间 <b class="req">*</b></span>
+            <input type="date" id="fDate">
+          </label>
+        </div>
+
+        <div class="grid-2">
+          <label class="field">
+            <span class="field-label">稿件当前进度 <b class="req">*</b></span>
+            <select id="fProgress"></select>
+          </label>
+          <label class="field" id="fProgressCustomWrap" hidden>
+            <span class="field-label">自定义进度 <b class="req">*</b></span>
+            <input type="text" id="fProgressCustom" placeholder="如：等待画师排期" autocomplete="off">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>稿件文件</legend>
+        <div class="field-head">
+          <span class="field-head-hint">列表中的稿件可随时单独下载，或打包下载全部</span>
+          <button type="button" class="btn btn-xs" id="stageDownloadAll" hidden>打包下载全部</button>
+        </div>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传稿件文件">
+          <span class="dz-icon" aria-hidden="true">⬆</span>
+          <span class="dz-main">点击选择文件，或将文件拖拽到此处</span>
+          <span class="dz-hint">支持图片 / PSD / PDF / 压缩包等任意格式，单个文件不超过 50MB</span>
+        </div>
+        <input type="file" id="fFiles" multiple hidden>
+        <ul class="file-list" id="fileList"></ul>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>补充信息</legend>
+        <label class="field">
+          <span class="field-label">补充备注 <em>选填</em></span>
+          <textarea id="fNotes" rows="3" placeholder="约稿需求 / 画师风格 / 修改次数 / 交付期限 / 特殊要求 / 沟通记录…"></textarea>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="fStarred">
+          <span class="switch-track" aria-hidden="true"></span>
+          <span class="switch-text"><span class="switch-star">★</span> 标记为星标收藏（优质画稿）</span>
+        </label>
+      </fieldset>
+
+      <p class="form-error" id="formError" hidden></p>
+    </form>
+
+    <footer class="modal-foot">
+      <button class="btn btn-ghost" id="modalCancel">取消</button>
+      <button class="btn btn-primary" id="modalSubmit">保存记录</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ============ 稿件库：上传弹窗 ============ -->
+<div class="modal-mask" id="uploadMask" hidden>
+  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+    <header class="modal-head">
+      <h2 id="uploadTitle">上传稿件</h2>
+      <button class="icon-btn" id="uploadClose" aria-label="关闭">✕</button>
+    </header>
+    <div class="modal-body">
+      <label class="field">
+        <span class="field-label">关联约稿记录 <b class="req">*</b></span>
+        <select id="uploadOrder"></select>
+      </label>
+      <div class="dropzone" id="uploadDrop" tabindex="0" role="button" aria-label="选择要上传的稿件">
+        <span class="dz-icon" aria-hidden="true">⬆</span>
+        <span class="dz-main">点击选择文件，或将文件拖拽到此处</span>
+        <span class="dz-hint">可一次选择多个文件</span>
+      </div>
+      <input type="file" id="uploadFiles" multiple hidden>
+      <ul class="file-list" id="uploadList"></ul>
+      <p class="form-error" id="uploadError" hidden></p>
+    </div>
+    <footer class="modal-foot">
+      <button class="btn btn-ghost" id="uploadCancel">取消</button>
+      <button class="btn btn-primary" id="uploadSubmit">开始上传</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ============ 稿件预览弹窗 ============ -->
+<div class="modal-mask" id="previewMask" hidden>
+  <div class="preview" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+    <header class="preview-head">
+      <div class="preview-title" id="previewTitle">稿件预览</div>
+      <button class="icon-btn" id="previewClose" aria-label="关闭">✕</button>
+    </header>
+    <div class="preview-body" id="previewBody"></div>
+    <div class="preview-meta" id="previewMeta"></div>
+    <footer class="preview-foot">
+      <button class="btn btn-ghost" id="previewLocate">查看所属订单</button>
+      <button class="btn btn-primary" id="previewDownload">下载该稿件</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ============ 确认弹窗 ============ -->
+<div class="modal-mask" id="confirmMask" hidden>
+  <div class="confirm" role="alertdialog" aria-modal="true">
+    <h3 id="confirmTitle">确认删除？</h3>
+    <p id="confirmText">删除后该条约稿记录将无法恢复。</p>
+    <div class="confirm-actions">
+      <button class="btn btn-ghost" id="confirmCancel">再想想</button>
+      <button class="btn btn-danger" id="confirmOk">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 卡片上快捷上传稿件用的隐藏输入框 -->
+<input type="file" id="quickFileInput" multiple hidden>
+
+<!-- ============ 轻提示 ============ -->
+<div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
+
+<script src="store.js"></script>
+<script src="files.js"></script>
+<script src="zip.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
