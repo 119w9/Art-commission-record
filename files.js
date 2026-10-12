@@ -115,6 +115,20 @@
     return tx('readonly', function (s) { return s.get(String(id)); });
   }
 
+  /* 仅更新某个文件行的 name（不触碰二进制） */
+  function rename(id, newName) {
+    var sid = String(id);
+    return tx('readwrite', function (s) {
+      var req = s.get(sid);
+      req.onsuccess = function () {
+        var row = req.result;
+        if (!row) return;
+        row.name = String(newName || row.name);
+        s.put(row);
+      };
+    });
+  }
+
   function all() {
     return tx('readonly', function (s) { return s.getAll(); }).then(function (rows) {
       return rows || [];
@@ -179,6 +193,7 @@
     putBlob: putBlob,
     restore: restore,
     get: get,
+    rename: rename,
     all: all,
     remove: remove,
     removeByOrder: removeByOrder,

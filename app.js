@@ -492,6 +492,7 @@
           '<div class="fc-actions">' +
             '<button class="btn btn-xs btn-ghost" data-act="preview" data-file="' + esc(a.id) + '">预览</button>' +
             '<button class="btn btn-xs btn-ghost" data-act="download-file" data-file="' + esc(a.id) + '">下载</button>' +
+            '<button class="btn btn-xs btn-ghost" data-act="rename-file" data-file="' + esc(a.id) + '">重命名</button>' +
             '<button class="btn btn-xs btn-soft-danger" data-act="delete-file" data-file="' + esc(a.id) + '">删除</button>' +
           '</div>' +
         '</div>' +
@@ -714,12 +715,26 @@
       // 写入新增的稿件
       var metas = [];
       for (var j = 0; j < stage.added.length; j++) {
-        var meta = await YF.putBlob(targetId, stage.added[j].file);
+        var item = stage.added[j];
+        var fileToPut = item.file;
+        if (item.name && item.name !== item.file.name) {
+          fileToPut = new File([item.file], item.name, { type: item.file.type, lastModified: item.file.lastModified });
+        }
+        var meta = await YF.putBlob(targetId, fileToPut);
         metas.push(meta);
       }
 
       var allMetas = stage.kept.concat(metas);
       Y.update(targetId, { attachments: allMetas });
+
+      // 已保存附件若被改名，同步更新 IndexedDB 里的文件元数据
+      for (var k = 0; k < stage.kept.length; k++) {
+        var a = stage.kept[k];
+        var row = await YF.get(a.id);
+        if (row && row.name !== a.name) {
+          try { await YF.rename(a.id, a.name); } catch (e) { /* 忽略单条失败 */ }
+        }
+      }
 
       var fileCount = allMetas.length;
       var added = stage.added.length;
@@ -753,9 +768,9 @@
         return;
       }
       if (target === 'stage') {
-        stage.added.push({ key: 'a_' + Math.random().toString(36).slice(2, 9), file: file, url: URL.createObjectURL(file) });
+        stage.added.push({ key: 'a_' + Math.random().toString(36).slice(2, 9), file: file, name: file.name, url: URL.createObjectURL(file) });
       } else {
-        uploadStage.files.push({ key: 'u_' + Math.random().toString(36).slice(2, 9), file: file, url: URL.createObjectURL(file) });
+        uploadStage.files.push({ key: 'u_' + Math.random().toString(36).slice(2, 9), file: file, name: file.name, url: URL.createObjectURL(file) });
       }
       accepted++;
     });
@@ -771,12 +786,159 @@
       '<li class="file-item">' +
         '<span class="file-thumb" ' + thumbAttr + '>' + fileIcon(opt.type, opt.name) + '</span>' +
         '<span class="file-info">' +
-          '<span class="file-name">' + esc(opt.name) + (isNew ? '<span class="file-tag-new">待上传</span>' : '') + '</span>' +
+          '<span class="file-name" data-name>' + esc(opt.name) + (isNew ? '<span class="file-tag-new">待上传</span>' : '') + '</span>' +
           '<span class="file-sub">' + esc(formatBytes(opt.size)) + ' · ' + esc(kindLabel(opt.type, opt.name)) + '</span>' +
         '</span>' +
+        '<button type="button" class="file-rename" data-rename="' + esc(opt.key) + '" title="重命名" aria-label="重命名稿件">✎</button>' +
         '<button type="button" class="file-dl" data-download="' + esc(opt.key) + '" title="下载该稿件" aria-label="下载该稿件">↓</button>' +
         '<button type="button" class="file-remove" data-remove="' + esc(opt.key) + '" title="移除" aria-label="移除文件">✕</button>' +
       '</li>';
+  }
+
+  /* ---------- 内联重命名：在原节点上原地替换为输入框，回车保存、Esc 取消 ---------- */
+  function startInlineRename(opts) {
+    var host = opts.host;
+    if (!host) return;
+    var initial = opts.initial || '';
+    var onCommit = opts.onCommit;
+    var onCancel = opts.onCancel;
+    var maxLength = opts.maxLength || 200;
+    var placeholder = opts.placeholder || '请输入名称';
+    var done = false;
+
+    host.innerHTML = '';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'inline-rename';
+    input.value = initial;
+    input.placeholder = placeholder;
+    input.maxLength = maxLength;
+    input.spellcheck = false;
+    input.autocomplete = 'off';
+    host.appendChild(input);
+    input.focus();
+    try { input.setSelectionRange(0, input.value.length); } catch (e) { input.select(); }
+
+    function commit() {
+      if (done) return; done = true;
+      var v = (input.value || '').trim();
+      if (!v) { onCancel && onCancel(); return; }
+      onCommit && onCommit(v);
+    }
+    function cancel() {
+      if (done) return; done = true;
+      onCancel && onCancel();
+    }
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+    });
+    input.addEventListener('blur', function () {
+      setTimeout(function () { if (!done) commit(); }, 0);
+    });
+  }
+
+  /* ---------- 弹窗内稿件重命名：已保存项只改 stage 元数据，待上传项改 stage 包装名 ---------- */
+  function commitStageRename(key, newName) {
+    if (key.indexOf('k_') === 0) {
+      var id = key.slice(2);
+      for (var i = 0; i < stage.kept.length; i++) {
+        if (stage.kept[i].id === id) { stage.kept[i].name = newName; break; }
+      }
+    } else {
+      for (var j = 0; j < stage.added.length; j++) {
+        if (stage.added[j].key === key) { stage.added[j].name = newName; break; }
+      }
+    }
+    renderStageFiles();
+  }
+
+  function beginStageRename(key, btn) {
+    var li = btn.closest('.file-item');
+    var nameEl = li && li.querySelector('[data-name]');
+    if (!nameEl) return;
+    var initial = '';
+    if (key.indexOf('k_') === 0) {
+      var id = key.slice(2);
+      for (var i = 0; i < stage.kept.length; i++) {
+        if (stage.kept[i].id === id) { initial = stage.kept[i].name || ''; break; }
+      }
+    } else {
+      for (var j = 0; j < stage.added.length; j++) {
+        if (stage.added[j].key === key) {
+          initial = stage.added[j].name || stage.added[j].file.name || '';
+          break;
+        }
+      }
+    }
+    startInlineRename({
+      host: nameEl,
+      initial: initial,
+      placeholder: '请输入文件名',
+      onCommit: function (v) {
+        if (v === initial) { renderStageFiles(); return; }
+        commitStageRename(key, v);
+      },
+      onCancel: function () { renderStageFiles(); }
+    });
+  }
+
+  /* ---------- 预览标题：内嵌重命名按钮 ---------- */
+  function renderPreviewTitle(name) {
+    if (!dom.previewTitle) return;
+    dom.previewTitle.innerHTML =
+      '<span class="preview-name" data-name>' + esc(name) + '</span>' +
+      '<button type="button" class="preview-rename icon-btn" data-act="rename" title="重命名" aria-label="重命名稿件">✎</button>';
+  }
+
+  function beginPreviewRename() {
+    var fileId = state.previewFileId;
+    if (!fileId) return;
+    var found = findFile(fileId);
+    if (!found) { toast('稿件不存在', 'error'); return; }
+    var nameEl = dom.previewTitle.querySelector('[data-name]');
+    if (!nameEl) return;
+    var initial = found.attachment.name;
+    startInlineRename({
+      host: nameEl,
+      initial: initial,
+      placeholder: '请输入文件名',
+      onCommit: function (v) {
+        if (v !== initial) {
+          var ok = Y.renameAttachment(found.record.id, fileId, v);
+          if (!ok) { toast('重命名失败', 'error'); renderPreviewTitle(initial); return; }
+          toast('已更名为「' + ok.name + '」', 'ok');
+          found = findFile(fileId) || found;
+        }
+        renderPreviewTitle(found.attachment.name);
+        var img = dom.previewBody.querySelector('img');
+        if (img) img.alt = found.attachment.name;
+      },
+      onCancel: function () { renderPreviewTitle(initial); }
+    });
+  }
+
+  /* ---------- 稿件库文件卡：重命名（直接生效） ---------- */
+  function beginFileRename(fileId, btn) {
+    var card = btn.closest('.file-card');
+    var nameEl = card && card.querySelector('.fc-name');
+    if (!nameEl) return;
+    var found = findFile(fileId);
+    if (!found) { toast('稿件不存在', 'error'); return; }
+    var initial = found.attachment.name;
+    startInlineRename({
+      host: nameEl,
+      initial: initial,
+      placeholder: '请输入文件名',
+      onCommit: function (v) {
+        if (v === initial) { renderFilesGrid(); return; }
+        var ok = Y.renameAttachment(found.record.id, fileId, v);
+        if (!ok) { toast('重命名失败', 'error'); renderFilesGrid(); return; }
+        toast('已更名为「' + ok.name + '」', 'ok');
+        renderFilesGrid();
+      },
+      onCancel: function () { renderFilesGrid(); }
+    });
   }
 
   function renderStageFiles() {
@@ -785,7 +947,7 @@
       html += fileItemHtml({ key: 'k_' + a.id, thumbId: a.id, name: a.name, size: a.size, type: a.type });
     });
     stage.added.forEach(function (item) {
-      html += fileItemHtml({ key: item.key, url: item.url, name: item.file.name, size: item.file.size, type: item.file.type, isNew: true });
+      html += fileItemHtml({ key: item.key, url: item.url, name: item.name || item.file.name, size: item.file.size, type: item.file.type, isNew: true });
     });
     dom.fileList.innerHTML = html;
     hydrateThumbs(dom.fileList);
@@ -829,7 +991,7 @@
 
     for (i = 0; i < stage.added.length; i++) {
       var item = stage.added[i];
-      base = safeName(item.file.name);
+      base = safeName(item.name || item.file.name);
       if (used[base]) base = 'new_' + (i + 1) + '_' + base;
       used[base] = true;
       entries.push({ name: base, data: item.file });
@@ -946,7 +1108,7 @@
     if (!found) { toast('稿件不存在', 'error'); return; }
 
     state.previewFileId = fileId;
-    dom.previewTitle.textContent = found.attachment.name;
+    renderPreviewTitle(found.attachment.name);
     dom.previewMeta.innerHTML =
       '<span>画手：' + esc(found.record.artistName || found.record.artistId || '未命名画手') + '</span>' +
       '<span>平台：' + esc(found.record.platform || '—') + '</span>' +
@@ -1408,6 +1570,7 @@
 
       if (act === 'preview') { openPreview(fileId); return; }
       if (act === 'download-file') { downloadFile(fileId); return; }
+      if (act === 'rename-file') { beginFileRename(fileId, actionEl); return; }
       if (act === 'delete-file') { askDeleteFile(fileId); return; }
     });
 
@@ -1480,6 +1643,8 @@
     dom.fProgress.addEventListener('change', syncCustomVisibility);
 
     dom.fileList.addEventListener('click', function (e) {
+      var rn = e.target.closest('[data-rename]');
+      if (rn) { beginStageRename(rn.getAttribute('data-rename'), rn); return; }
       var dl = e.target.closest('[data-download]');
       if (dl) { downloadStageFile(dl.getAttribute('data-download')); return; }
       var btn = e.target.closest('[data-remove]');
@@ -1528,6 +1693,10 @@
     dom.previewClose.addEventListener('click', closePreview);
     dom.previewMask.addEventListener('mousedown', function (e) {
       if (e.target === dom.previewMask) closePreview();
+    });
+    dom.previewTitle.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-act="rename"]');
+      if (btn) beginPreviewRename();
     });
     dom.previewDownload.addEventListener('click', function () {
       if (state.previewFileId) downloadFile(state.previewFileId);

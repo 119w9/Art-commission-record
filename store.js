@@ -338,6 +338,23 @@
     return rec;
   }
 
+  /* 重命名某条记录里某个附件（仅元数据，二进制不变） */
+  function renameAttachment(recordId, fileId, newName) {
+    var rec = getById(recordId);
+    if (!rec) return null;
+    var target = null;
+    for (var i = 0; i < rec.attachments.length; i++) {
+      if (rec.attachments[i].id === fileId) { target = rec.attachments[i]; break; }
+    }
+    if (!target) return null;
+    var clean = str(newName);
+    if (!clean) return null;
+    target.name = clean;
+    rec.updatedAt = new Date().toISOString();
+    persist();
+    return target;
+  }
+
   /* --------------------- 导入 / 导出 --------------------- */
 
   function exportPayload() {
@@ -435,6 +452,7 @@
     attachmentCount: attachmentCount,
     detachFile: detachFile,
     attachFiles: attachFiles,
+    renameAttachment: renameAttachment,
     // 备份
     exportPayload: exportPayload,
     importPayload: importPayload,
